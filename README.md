@@ -1,4 +1,5 @@
 # SlouchFix
+<<<<<<< HEAD
 
 On-device posture and screen-distance detection for programmers, running as
 a Windows/PC background app. See `SlouchFix.pdf` for the original pitch and
@@ -159,3 +160,6 @@ data/
   models/                trained model exports (gitignored)
   history/                dashboard usage log: states.csv + alerts.csv (gitignored)
 ```
+=======
+A privacy-first desktop app that detects poor posture and unsafe screen distance in real time while you code.
+>>>>>>> fed8e4caa5a2be4bf88167f45b598cb9889af636
