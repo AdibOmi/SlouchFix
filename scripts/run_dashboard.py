@@ -1,0 +1,11 @@
+"""Thin entry point for the dashboard UI: python scripts\\run_dashboard.py"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from slouchfix.ui import main
+
+if __name__ == "__main__":
+    main()
