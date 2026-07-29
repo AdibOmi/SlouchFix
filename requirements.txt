@@ -8,6 +8,10 @@ pystray>=0.19
 pillow>=11.0
 pyyaml>=6.0
 
+# Local backend for the Flutter desktop app (slouchfix_app/)
+fastapi>=0.115
+uvicorn[standard]>=0.32
+
 # Training (Part 1: ML / Pattern Recognition)
 scikit-learn>=1.5
 torch>=2.5

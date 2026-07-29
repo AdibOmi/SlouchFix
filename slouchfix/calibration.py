@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 import numpy as np
 
@@ -54,6 +54,26 @@ class Calibration:
         return cls(**data)
 
 
+def _build_calibration(samples: list[FrameFeatures], distance_cm: float) -> Calibration:
+    """Averages a batch of samples collected at a known distance into a
+    saved-shape `Calibration`. Pure/no I/O so both the blocking CLI flow
+    below and `CalibrationSession` (driven step-by-step by the local
+    server, for the Flutter UI) can share the same math."""
+    if not samples:
+        raise RuntimeError("No face detected during calibration. Check camera framing and lighting.")
+
+    inter_eye_px = float(np.mean([s.inter_eye_px for s in samples]))
+    return Calibration(
+        pixel_to_cm_k=distance_cm * inter_eye_px,
+        baseline_pitch_deg=float(np.mean([s.pitch_deg for s in samples])),
+        baseline_yaw_deg=float(np.mean([s.yaw_deg for s in samples])),
+        baseline_roll_deg=float(np.mean([s.roll_deg for s in samples])),
+        baseline_nose_to_eye_ratio=float(np.mean([s.nose_to_eye_ratio for s in samples])),
+        baseline_face_center_y_frac=float(np.mean([s.face_center_y_frac for s in samples])),
+        calibration_distance_cm=distance_cm,
+    )
+
+
 def run_calibration(
     distance_cm: float = DEFAULT_CALIBRATION_DISTANCE_CM,
     seconds: float = CALIBRATION_SECONDS,
@@ -87,19 +107,7 @@ def run_calibration(
         if show_preview:
             cv2.destroyAllWindows()
 
-    if not samples:
-        raise RuntimeError("No face detected during calibration. Check camera framing and lighting.")
-
-    inter_eye_px = float(np.mean([s.inter_eye_px for s in samples]))
-    calibration = Calibration(
-        pixel_to_cm_k=distance_cm * inter_eye_px,
-        baseline_pitch_deg=float(np.mean([s.pitch_deg for s in samples])),
-        baseline_yaw_deg=float(np.mean([s.yaw_deg for s in samples])),
-        baseline_roll_deg=float(np.mean([s.roll_deg for s in samples])),
-        baseline_nose_to_eye_ratio=float(np.mean([s.nose_to_eye_ratio for s in samples])),
-        baseline_face_center_y_frac=float(np.mean([s.face_center_y_frac for s in samples])),
-        calibration_distance_cm=distance_cm,
-    )
+    calibration = _build_calibration(samples, distance_cm)
     calibration.save()
     print(f"Calibration saved to {config.CALIBRATION_PATH}")
     return calibration
@@ -110,3 +118,132 @@ def get_or_run_calibration() -> Calibration:
     if existing is not None:
         return existing
     return run_calibration()
+
+
+class CalibrationSession:
+    """Step-driven calibration for callers that can't block on a native cv2
+    window (the local server, for the Flutter UI): the caller reads a frame
+    at a time via `step()` and can stream it/a progress fraction to a client
+    instead. Owns its own camera + detector, so it must not be used while a
+    `SlouchFixApp` is also holding the camera open -- for recalibrating an
+    already-running app, use `SlouchFixApp.start_recalibration()` instead,
+    which reuses the app's existing camera handle."""
+
+    def __init__(
+        self,
+        distance_cm: float = DEFAULT_CALIBRATION_DISTANCE_CM,
+        seconds: float = CALIBRATION_SECONDS,
+        camera_index: int = config.CAMERA_INDEX,
+    ) -> None:
+        self.distance_cm = distance_cm
+        self.seconds = seconds
+        self.camera_index = camera_index
+        self._cam: WebcamCapture | None = None
+        self._detector: FaceLandmarkDetector | None = None
+        self._extractor = FeatureExtractor()
+        self._samples: list[FrameFeatures] = []
+        self._start: float | None = None
+        self.latest_frame: np.ndarray | None = None
+        self.result: Calibration | None = None
+        self.error: str | None = None
+
+    def open(self) -> "CalibrationSession":
+        self._cam = WebcamCapture(camera_index=self.camera_index).open()
+        self._detector = FaceLandmarkDetector()
+        self._start = time.time()
+        return self
+
+    @property
+    def progress(self) -> float:
+        if self._start is None:
+            return 0.0
+        return min(1.0, (time.time() - self._start) / self.seconds)
+
+    @property
+    def done(self) -> bool:
+        return self.result is not None or self.error is not None
+
+    def step(self) -> np.ndarray | None:
+        """Reads and processes one frame, returning it for preview (or None
+        if the camera gave nothing this call). Once `seconds` has elapsed,
+        computes and saves the result -- check `.done`/`.result`/`.error`
+        after. A `RuntimeError` (no face seen for the whole window) is
+        caught and stored in `.error` rather than raised, since this is
+        meant to be polled from a background thread the caller doesn't
+        directly supervise."""
+        assert self._cam is not None and self._detector is not None and self._start is not None
+        if self.done:
+            return self.latest_frame
+
+        frame = self._cam.read()
+        if frame is not None:
+            self.latest_frame = frame
+            face = self._detector.process(frame)
+            if face is not None:
+                self._samples.append(self._extractor.extract(face))
+
+        if time.time() - self._start >= self.seconds:
+            try:
+                calibration = _build_calibration(self._samples, self.distance_cm)
+                calibration.save()
+                self.result = calibration
+            except RuntimeError as exc:
+                self.error = str(exc)
+
+        return self.latest_frame
+
+    def close(self) -> None:
+        if self._detector is not None:
+            self._detector.close()
+            self._detector = None
+        if self._cam is not None:
+            self._cam.close()
+            self._cam = None
+
+    def __enter__(self) -> "CalibrationSession":
+        return self.open()
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
+
+@dataclass
+class RecalibrationMonitor:
+    """Flags the active calibration as possibly stale when frame-to-frame
+    landmark scale/angle changes far exceed ordinary micro-movement noise
+    (e.g. the laptop or camera got physically bumped or repositioned mid
+    session). This is the "lightweight recalibration trigger" from the
+    orientation/mounting-angle corner case: a sudden jump means the
+    baseline this frame is being compared against may no longer describe
+    the current camera-to-face geometry.
+
+    Phase 1 scope: log/print the flag so it's visible during development
+    and demos. A real "recalibrate now?" prompt is future UI work -- see
+    the build brief's corner-case section.
+    """
+
+    scale_jump_frac: float = 0.35  # relative jump in inter_eye_px_norm between consecutive frames
+    angle_jump_deg: float = 20.0   # jump in pitch/yaw/roll between consecutive frames
+    _prev: "FrameFeatures | None" = field(default=None, init=False, repr=False)
+
+    def update(self, features: FrameFeatures) -> bool:
+        """Returns True if this frame's jump from the previous frame looks
+        like a physical setup change rather than normal head movement."""
+        flagged = False
+        prev = self._prev
+        if prev is not None:
+            scale_delta = abs(features.inter_eye_px_norm - prev.inter_eye_px_norm) / max(
+                prev.inter_eye_px_norm, 1e-6
+            )
+            angle_delta = max(
+                abs(features.pitch_deg - prev.pitch_deg),
+                abs(features.yaw_deg - prev.yaw_deg),
+                abs(features.roll_deg - prev.roll_deg),
+            )
+            if scale_delta > self.scale_jump_frac or angle_delta > self.angle_jump_deg:
+                flagged = True
+        self._prev = features
+        return flagged
+
+    def reset(self) -> None:
+        self._prev = None
