@@ -182,6 +182,83 @@
       "n_people_train": 60,
       "n_people_val": 20,
       "n_people_test": 20
+    },
+    "MLP (PyTorch)": {
+      "classification": {
+        "accuracy": 0.9145035755205246,
+        "macro_f1": 0.8927113069523344,
+        "confusion_matrix": [
+          [
+            10184,
+            9,
+            100,
+            163,
+            140,
+            173
+          ],
+          [
+            103,
+            5104,
+            89,
+            6,
+            6,
+            82
+          ],
+          [
+            209,
+            149,
+            2214,
+            141,
+            0,
+            4
+          ],
+          [
+            196,
+            1,
+            72,
+            1732,
+            0,
+            22
+          ],
+          [
+            211,
+            67,
+            0,
+            0,
+            2125,
+            3
+          ],
+          [
+            105,
+            10,
+            2,
+            101,
+            0,
+            1788
+          ]
+        ],
+        "labels_order": [
+          "good_posture",
+          "slouched",
+          "leaning_forward",
+          "too_close",
+          "head_tilted",
+          "looking_away"
+        ]
+      },
+      "distance": {
+        "mae_cm": 1.7706546783447266
+      },
+      "latency": {
+        "latency_ms": 0.35572500000398577,
+        "fps": 2811.1603063849752
+      },
+      "n_train": 76340,
+      "n_val": 25655,
+      "n_test": 25311,
+      "n_people_train": 60,
+      "n_people_val": 20,
+      "n_people_test": 20
     }
   }
 }
