@@ -1,20 +1,24 @@
 """Dataset generator for SlouchFix.
 
-Generates physically and ergonomically grounded session CSVs modeling real-world
-programming scenarios:
-  - 8 diverse personas across different hardware setups (laptops, external monitors,
-    dual-screen setups, standing desks, varying anthropometrics).
-  - Optics-grounded landmark scaling (inter-ocular distance vs. screen distance).
-  - Continuous behavioral timelines with sustained posture blocks, realistic
-    posture transitions, and autoregressive physiological micro-movements.
-  - Generates per-session CSVs under data/raw/ and a consolidated dataset.csv.
+Generates a large, physically and ergonomically grounded posture dataset modeling
+real-world programming setups across diverse subjects:
+  - Configurable number of people (default: 100 people, p001 to p100).
+  - 10 distinct workstation archetypes (low laptop, laptop stand, 24-27" monitor,
+    34" ultrawide, dual-screen setups with left/right webcams, standing desks,
+    ergonomic recliners, glasses wearers, and fidgety thinkers).
+  - Anthropometric variations (inter-pupillary distance, seated height, posture tendencies).
+  - Continuous behavioral timelines with sustained posture episodes, smooth
+    transitions, and autoregressive (AR-1) physiological micro-movements.
+  - Generates per-session CSVs in data/raw/ and consolidated datasets/dataset.csv.
 
 Usage:
     python scripts/dataset.py
+    python scripts/dataset.py --num-people 100 --sessions-per-person 2 --clean
 """
 
 from __future__ import annotations
 
+import argparse
 import math
 import sys
 from dataclasses import dataclass
@@ -37,7 +41,7 @@ class Persona:
     person_id: str
     name: str
     description: str
-    ipd_scale: float           # Inter-pupillary distance scale (0.90 to 1.12)
+    ipd_scale: float           # Inter-pupillary distance scale (0.88 to 1.15)
     base_distance_cm: float    # Natural working distance in good posture
     base_pitch_deg: float      # Camera mount tilt bias (+: low laptop, -: high monitor)
     base_yaw_deg: float        # Camera horizontal offset bias (e.g. dual monitor)
@@ -46,104 +50,140 @@ class Persona:
     slouch_tendency: float     # Relative propensity for slouching when fatigued
 
 
-PERSONAS = [
-    Persona(
-        person_id="p01_alex",
-        name="Alex",
-        description="Tall developer, 27-inch 4K monitor with top-mounted webcam (-6° pitch)",
-        ipd_scale=1.08,
-        base_distance_cm=62.0,
-        base_pitch_deg=-6.0,
-        base_yaw_deg=0.0,
-        base_cy_frac=0.44,
-        fidget_factor=0.9,
-        slouch_tendency=1.0,
-    ),
-    Persona(
-        person_id="p02_maya",
-        name="Maya",
-        description="Laptop on flat desk, low camera looking up at chin (+8° pitch)",
-        ipd_scale=0.94,
-        base_distance_cm=46.0,
-        base_pitch_deg=8.0,
-        base_yaw_deg=1.0,
-        base_cy_frac=0.51,
-        fidget_factor=1.0,
-        slouch_tendency=1.1,
-    ),
-    Persona(
-        person_id="p03_david",
-        name="David",
-        description="Dual-screen setup, laptop webcam on the left looking at main monitor (-14° yaw)",
-        ipd_scale=1.02,
-        base_distance_cm=55.0,
-        base_pitch_deg=-2.0,
-        base_yaw_deg=-14.0,
-        base_cy_frac=0.48,
-        fidget_factor=1.1,
-        slouch_tendency=0.9,
-    ),
-    Persona(
-        person_id="p04_sarah",
-        name="Sarah",
-        description="Active standing desk setup with eye-level webcam, higher micro-motion",
-        ipd_scale=0.98,
-        base_distance_cm=58.0,
-        base_pitch_deg=0.0,
-        base_yaw_deg=0.0,
-        base_cy_frac=0.46,
-        fidget_factor=1.7,
-        slouch_tendency=0.6,
-    ),
-    Persona(
-        person_id="p05_ken",
-        name="Ken",
-        description="Glasses wearer with small editor fonts, prone to leaning forward and too-close",
-        ipd_scale=0.92,
-        base_distance_cm=44.0,
-        base_pitch_deg=4.0,
-        base_yaw_deg=-1.0,
-        base_cy_frac=0.49,
-        fidget_factor=1.0,
-        slouch_tendency=1.3,
-    ),
-    Persona(
-        person_id="p06_elena",
-        name="Elena",
-        description="Deep-slouch prone in ergonomic high-back chair during code reviews",
-        ipd_scale=1.00,
-        base_distance_cm=54.0,
-        base_pitch_deg=-3.0,
-        base_yaw_deg=0.0,
-        base_cy_frac=0.47,
-        fidget_factor=0.8,
-        slouch_tendency=1.8,
-    ),
-    Persona(
-        person_id="p07_liam",
-        name="Liam",
-        description="Frequent chin-on-hand thinker with prominent head tilt",
-        ipd_scale=1.04,
-        base_distance_cm=50.0,
-        base_pitch_deg=-1.0,
-        base_yaw_deg=2.0,
-        base_cy_frac=0.50,
-        fidget_factor=1.2,
-        slouch_tendency=1.0,
-    ),
-    Persona(
-        person_id="p08_priya",
-        name="Priya",
-        description="Ultrawide 34-inch curved monitor, wide gaze angles, frequent looking away",
-        ipd_scale=0.96,
-        base_distance_cm=65.0,
-        base_pitch_deg=-4.0,
-        base_yaw_deg=0.0,
-        base_cy_frac=0.45,
-        fidget_factor=1.1,
-        slouch_tendency=0.9,
-    ),
+ARCHETYPES = [
+    {
+        "type": "laptop_desk",
+        "description": "Laptop flat on desk, low camera looking up at chin (+7° to +11° pitch)",
+        "pitch_bias": (6.0, 11.0),
+        "yaw_bias": (-2.0, 2.0),
+        "dist_base": (42.0, 48.0),
+        "cy_base": (0.49, 0.54),
+        "slouch_tend": (1.0, 1.4),
+        "fidget": (0.8, 1.2),
+    },
+    {
+        "type": "laptop_stand",
+        "description": "Laptop on elevated stand, eye-level camera (-2° to +3° pitch)",
+        "pitch_bias": (-2.0, 3.0),
+        "yaw_bias": (-2.0, 2.0),
+        "dist_base": (46.0, 56.0),
+        "cy_base": (0.45, 0.50),
+        "slouch_tend": (0.8, 1.2),
+        "fidget": (0.8, 1.2),
+    },
+    {
+        "type": "external_monitor_24_27",
+        "description": "24-27 inch external monitor, top-mounted webcam (-7° to -3° pitch)",
+        "pitch_bias": (-8.0, -3.0),
+        "yaw_bias": (-3.0, 3.0),
+        "dist_base": (54.0, 66.0),
+        "cy_base": (0.42, 0.48),
+        "slouch_tend": (0.9, 1.3),
+        "fidget": (0.8, 1.1),
+    },
+    {
+        "type": "ultrawide_curved",
+        "description": "34-inch ultrawide curved monitor, wide gaze angles (-8° to -4° pitch)",
+        "pitch_bias": (-8.0, -4.0),
+        "yaw_bias": (-4.0, 4.0),
+        "dist_base": (60.0, 72.0),
+        "cy_base": (0.42, 0.47),
+        "slouch_tend": (0.8, 1.2),
+        "fidget": (0.9, 1.3),
+    },
+    {
+        "type": "dual_monitor_left_cam",
+        "description": "Dual monitor setup, webcam on left laptop (-16° to -10° yaw bias)",
+        "pitch_bias": (-4.0, 2.0),
+        "yaw_bias": (-17.0, -10.0),
+        "dist_base": (50.0, 60.0),
+        "cy_base": (0.45, 0.51),
+        "slouch_tend": (0.8, 1.2),
+        "fidget": (0.9, 1.3),
+    },
+    {
+        "type": "dual_monitor_right_cam",
+        "description": "Dual monitor setup, webcam on right laptop (+10° to +16° yaw bias)",
+        "pitch_bias": (-4.0, 2.0),
+        "yaw_bias": (10.0, 17.0),
+        "dist_base": (50.0, 60.0),
+        "cy_base": (0.45, 0.51),
+        "slouch_tend": (0.8, 1.2),
+        "fidget": (0.9, 1.3),
+    },
+    {
+        "type": "standing_desk",
+        "description": "Standing desk setup, eye-level camera, high micro-motion (1.5x - 2.0x)",
+        "pitch_bias": (-2.0, 2.0),
+        "yaw_bias": (-2.0, 2.0),
+        "dist_base": (52.0, 64.0),
+        "cy_base": (0.44, 0.49),
+        "slouch_tend": (0.4, 0.7),
+        "fidget": (1.5, 2.1),
+    },
+    {
+        "type": "ergonomic_sloucher",
+        "description": "Ergonomic recliner / high-back chair, prone to deep slouching (1.5x - 2.1x)",
+        "pitch_bias": (-5.0, 1.0),
+        "yaw_bias": (-3.0, 3.0),
+        "dist_base": (50.0, 62.0),
+        "cy_base": (0.44, 0.49),
+        "slouch_tend": (1.5, 2.1),
+        "fidget": (0.7, 1.0),
+    },
+    {
+        "type": "glasses_reader",
+        "description": "Glasses wearer, tends to lean forward closer to screen (38-48cm)",
+        "pitch_bias": (2.0, 6.0),
+        "yaw_bias": (-2.0, 2.0),
+        "dist_base": (40.0, 48.0),
+        "cy_base": (0.47, 0.52),
+        "slouch_tend": (1.1, 1.5),
+        "fidget": (0.9, 1.2),
+    },
+    {
+        "type": "fidgety_thinker",
+        "description": "Frequent chin-on-hand thinker with prominent lateral head tilt",
+        "pitch_bias": (-3.0, 2.0),
+        "yaw_bias": (-4.0, 4.0),
+        "dist_base": (48.0, 56.0),
+        "cy_base": (0.47, 0.52),
+        "slouch_tend": (0.9, 1.2),
+        "fidget": (1.2, 1.6),
+    },
 ]
+
+
+def generate_personas(num_people: int = 100, seed: int = 2026) -> list[Persona]:
+    """Generates `num_people` diverse personas sampled across real-life archetypes."""
+    rng = np.random.default_rng(seed)
+    personas = []
+    for i in range(1, num_people + 1):
+        arch = rng.choice(ARCHETYPES)
+        person_id = f"p{i:03d}"
+        ipd_scale = float(np.clip(rng.normal(1.0, 0.055), 0.88, 1.15))
+        base_dist = float(rng.uniform(*arch["dist_base"]))
+        base_pitch = float(rng.uniform(*arch["pitch_bias"]))
+        base_yaw = float(rng.uniform(*arch["yaw_bias"]))
+        base_cy = float(rng.uniform(*arch["cy_base"]))
+        slouch_tend = float(rng.uniform(*arch["slouch_tend"]))
+        fidget = float(rng.uniform(*arch["fidget"]))
+
+        personas.append(
+            Persona(
+                person_id=person_id,
+                name=f"Person_{i:03d}",
+                description=f"{arch['description']} (IPD={ipd_scale:.2f}, base_dist={base_dist:.0f}cm)",
+                ipd_scale=ipd_scale,
+                base_distance_cm=base_dist,
+                base_pitch_deg=base_pitch,
+                base_yaw_deg=base_yaw,
+                base_cy_frac=base_cy,
+                fidget_factor=fidget,
+                slouch_tendency=slouch_tend,
+            )
+        )
+    return personas
 
 
 class AR1NoiseGenerator:
@@ -186,7 +226,6 @@ def _generate_posture_target(
         motion = 0.009 * persona.fidget_factor
 
     elif label == "slouched":
-        # Sinking down in chair: face center drops dramatically, distance slightly increases
         dist = base_dist + rng.uniform(1.0, 5.0)
         pitch = base_pitch + rng.uniform(-2.0, 4.0)
         yaw = base_yaw + rng.uniform(-4.0, 4.0)
@@ -195,7 +234,6 @@ def _generate_posture_target(
         motion = 0.012 * persona.fidget_factor
 
     elif label == "leaning_forward":
-        # Torso leans in towards screen: distance decreases, positive pitch, nose foreshortening
         dist = rng.uniform(32.0, 42.0)
         pitch = base_pitch + rng.uniform(14.0, 22.0)
         yaw = base_yaw + rng.uniform(-4.0, 4.0)
@@ -204,7 +242,6 @@ def _generate_posture_target(
         motion = 0.015 * persona.fidget_factor
 
     elif label == "too_close":
-        # Dangerously close to screen: <32 cm
         dist = rng.uniform(20.0, 31.0)
         pitch = base_pitch + rng.uniform(6.0, 15.0)
         yaw = base_yaw + rng.uniform(-5.0, 5.0)
@@ -213,7 +250,6 @@ def _generate_posture_target(
         motion = 0.018 * persona.fidget_factor
 
     elif label == "head_tilted":
-        # Head tilted sideways (lateral neck flexion, resting chin on hand)
         direction = rng.choice([-1.0, 1.0])
         dist = base_dist + rng.uniform(-2.0, 3.0)
         pitch = base_pitch + rng.uniform(-3.0, 3.0)
@@ -223,7 +259,6 @@ def _generate_posture_target(
         motion = 0.010 * persona.fidget_factor
 
     elif label == "looking_away":
-        # Turned head away towards secondary screen or phone
         direction = rng.choice([-1.0, 1.0])
         dist = base_dist + rng.uniform(-3.0, 4.0)
         pitch = base_pitch + rng.uniform(-4.0, 4.0)
@@ -253,17 +288,12 @@ def _render_frame(
     transition_factor: float = 0.0,
 ) -> dict[str, float | str]:
     """Applies pinhole projection optics and geometric correlations to render feature vector."""
-    # Distance with micro-fluctuations
     dist = max(15.0, state["distance_cm"] + noise["dist"].step(0.4))
 
-    # Head pose angles with tremor
     pitch = state["pitch_deg"] + noise["pitch"].step(0.6)
     yaw = state["yaw_deg"] + noise["yaw"].step(0.6)
     roll = state["roll_deg"] + noise["roll"].step(0.5)
 
-    # Optical projection of inter-ocular distance
-    # At 50cm with 640px width, inter_eye_px ~ 90px
-    # Perspective foreshortening from yaw: cos(yaw)
     cos_yaw = max(0.4, math.cos(math.radians(yaw)))
     cos_pitch = max(0.6, math.cos(math.radians(pitch)))
 
@@ -271,22 +301,17 @@ def _render_frame(
     inter_eye_px = (k_inter / dist) * cos_yaw
     inter_eye_px_norm = inter_eye_px / config.FRAME_WIDTH
 
-    # Nose-to-eye ratio (foreshortened by pitch angle)
-    # Pitching forward compresses vertical nose-to-eye distance
     base_ratio = 0.55 - (pitch * 0.008)
     nose_to_eye_ratio = max(0.30, min(0.75, base_ratio + noise["ratio"].step(0.01)))
 
-    # Bounding box geometry
     bbox_width_frac = inter_eye_px_norm * 2.38 * cos_yaw
     bbox_height_frac = inter_eye_px_norm * 3.45 * cos_pitch
     bbox_width_frac = max(0.12, min(0.95, bbox_width_frac + noise["bbox_w"].step(0.005)))
     bbox_height_frac = max(0.16, min(0.98, bbox_height_frac + noise["bbox_h"].step(0.006)))
     bbox_area_frac = bbox_width_frac * bbox_height_frac
 
-    # Face center vertical position
     face_center_y_frac = max(0.20, min(0.85, state["face_center_y_frac"] + noise["cy"].step(0.004)))
 
-    # Motion score: base physiological micro-motion + transition boost
     motion_spike = transition_factor * 0.06
     motion_score = max(0.002, state["base_motion"] + motion_spike + abs(noise["motion"].step(0.003)))
 
@@ -313,30 +338,28 @@ def generate_session(
 ) -> pd.DataFrame:
     """Generates a complete session recording timeline with continuous posture episodes."""
     if session_type == "morning_alert":
-        # Morning session: high good_posture ratio, occasional leaning forward and looking away
         block_labels = [
-            ("good_posture", 120),
-            ("leaning_forward", 70),
-            ("good_posture", 90),
-            ("looking_away", 50),
-            ("good_posture", 80),
-            ("head_tilted", 60),
-            ("good_posture", 90),
-            ("too_close", 45),
-            ("good_posture", 60),
+            ("good_posture", int(rng.integers(80, 120))),
+            ("leaning_forward", int(rng.integers(45, 75))),
+            ("good_posture", int(rng.integers(70, 100))),
+            ("looking_away", int(rng.integers(35, 55))),
+            ("good_posture", int(rng.integers(60, 90))),
+            ("head_tilted", int(rng.integers(40, 65))),
+            ("good_posture", int(rng.integers(70, 100))),
+            ("too_close", int(rng.integers(35, 55))),
+            ("good_posture", int(rng.integers(50, 80))),
         ]
     else:
-        # Afternoon fatigue session: more slouched, leaning forward, head tilted
         block_labels = [
-            ("good_posture", 80),
-            ("slouched", 110),
-            ("leaning_forward", 85),
-            ("slouched", 95),
-            ("head_tilted", 75),
-            ("good_posture", 60),
-            ("too_close", 60),
-            ("looking_away", 60),
-            ("slouched", 80),
+            ("good_posture", int(rng.integers(55, 85))),
+            ("slouched", int(rng.integers(80, 125))),
+            ("leaning_forward", int(rng.integers(55, 95))),
+            ("slouched", int(rng.integers(70, 110))),
+            ("head_tilted", int(rng.integers(50, 85))),
+            ("good_posture", int(rng.integers(45, 75))),
+            ("too_close", int(rng.integers(45, 70))),
+            ("looking_away", int(rng.integers(45, 70))),
+            ("slouched", int(rng.integers(65, 100))),
         ]
 
     noise = {
@@ -365,7 +388,6 @@ def generate_session(
         transition_len = 12 if idx > 0 else 0
 
         for f in range(duration_frames):
-            # Transition interpolation
             if f < transition_len and idx > 0:
                 alpha = _smooth_step(f / transition_len)
                 interp_state = {
@@ -398,44 +420,54 @@ def generate_session(
         current_state = target_state
 
     df = pd.DataFrame(rows)
-    # Ensure correct column ordering matching slouchfix.data_collection
     cols = ["timestamp", "person_id", "session_id", "label", "distance_cm", *FEATURE_NAMES]
     return df[cols]
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="SlouchFix dataset generator")
+    parser.add_argument("--num-people", type=int, default=100, help="Number of distinct people/personas (default: 100)")
+    parser.add_argument("--sessions-per-person", type=int, default=2, help="Sessions per person (default: 2)")
+    parser.add_argument("--clean", action="store_true", default=True, help="Remove existing raw session CSVs before generating (default: True)")
+    parser.add_argument("--no-clean", action="store_false", dest="clean", help="Keep existing raw session CSVs")
+    args = parser.parse_args()
+
     config.DATA_RAW_DIR.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(2026)
 
-    print(f"Synthesizing realistic dataset for {len(PERSONAS)} personas across real-world setups...")
+    personas = generate_personas(num_people=args.num_people, seed=2026)
+
+    if args.clean:
+        for old_file in config.DATA_RAW_DIR.glob("*.csv"):
+            try:
+                old_file.unlink()
+            except OSError:
+                pass
+
+    print(f"Generating dataset for {len(personas)} people across real-world setups...")
+    print(f"Sessions per person: {args.sessions_per_person}")
     print(f"Output directory: {config.DATA_RAW_DIR}\n")
 
     total_frames = 0
     generated_files = []
 
-    for idx, persona in enumerate(PERSONAS):
-        print(f"[{idx+1}/{len(PERSONAS)}] Persona: {persona.name} ({persona.person_id})")
-        print(f"    Setup: {persona.description}")
+    for idx, persona in enumerate(personas):
+        session_types = ["morning_alert", "afternoon_fatigue"]
+        for s_idx in range(args.sessions_per_person):
+            stype = session_types[s_idx % len(session_types)]
+            s_name = "morning" if s_idx % 2 == 0 else "afternoon"
+            s_id = f"s{s_idx+1:02d}_{s_name}_{20260918 + idx}"
+            df_session = generate_session(persona, s_id, stype, rng)
+            out_path = config.DATA_RAW_DIR / f"{persona.person_id}_{s_id}.csv"
+            df_session.to_csv(out_path, index=False)
+            total_frames += len(df_session)
+            generated_files.append(out_path)
 
-        # Session 1: Morning Focus
-        s1_id = f"s01_morning_{20260918 + idx}"
-        df_s1 = generate_session(persona, s1_id, "morning_alert", rng)
-        out_s1 = config.DATA_RAW_DIR / f"{persona.person_id}_{s1_id}.csv"
-        df_s1.to_csv(out_s1, index=False)
-        total_frames += len(df_s1)
-        generated_files.append(out_s1)
-        print(f"    -> Session 1: {len(df_s1)} frames saved to {out_s1.name}")
+        if (idx + 1) % 10 == 0 or (idx + 1) == len(personas):
+            print(f"  Processed {idx + 1:3d}/{len(personas)} people ({total_frames:6d} frames generated so far)...")
 
-        # Session 2: Afternoon Fatigue
-        s2_id = f"s02_afternoon_{20260918 + idx}"
-        df_s2 = generate_session(persona, s2_id, "afternoon_fatigue", rng)
-        out_s2 = config.DATA_RAW_DIR / f"{persona.person_id}_{s2_id}.csv"
-        df_s2.to_csv(out_s2, index=False)
-        total_frames += len(df_s2)
-        generated_files.append(out_s2)
-        print(f"    -> Session 2: {len(df_s2)} frames saved to {out_s2.name}")
-
-    # Also build a consolidated single dataset.csv
+    # Build consolidated single dataset.csv
+    print("\nAssembling consolidated dataset.csv ...")
     all_dfs = [pd.read_csv(f) for f in generated_files]
     combined_df = pd.concat(all_dfs, ignore_index=True)
 
@@ -448,15 +480,14 @@ def main() -> None:
     datasets_csv_path = datasets_dir / "dataset.csv"
     combined_df.to_csv(datasets_csv_path, index=False)
 
-    print("\n" + "=" * 60)
-    print(f"Successfully generated {len(generated_files)} session CSV files ({total_frames} frames total).")
+    print("\n" + "=" * 65)
+    print(f"Successfully generated {len(generated_files)} session CSV files.")
+    print(f"Total people: {len(personas)}")
+    print(f"Total frames: {total_frames:,}")
     print(f"Consolidated dataset saved to:")
     print(f"  * {datasets_csv_path}")
     print(f"  * {processed_dataset_path}")
-    print("Personas covered:")
-    for p in PERSONAS:
-        print(f"  * {p.person_id:12s} - {p.name}: {p.description}")
-    print("=" * 60)
+    print("=" * 65)
 
 
 if __name__ == "__main__":
