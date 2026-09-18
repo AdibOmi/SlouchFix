@@ -5,7 +5,9 @@ data/raw/*.csv
 data/processed/*
 data/models/*
 data/history/*.csv
+datasets/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/models/.gitkeep
 !data/history/.gitkeep
+!datasets/.gitkeep

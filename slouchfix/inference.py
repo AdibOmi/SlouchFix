@@ -58,9 +58,14 @@ class PostureEngine:
     def using_trained_model(self) -> bool:
         return self._session is not None
 
-    def classify(self, features: FrameFeatures, calib: Calibration) -> baseline.PostureReading:
+    def classify(
+        self,
+        features: FrameFeatures,
+        calib: Calibration,
+        device_tilt_angle: float | None = None,
+    ) -> baseline.PostureReading:
         if self._session is None:
-            return baseline.classify(features, calib, self.settings)
+            return baseline.classify(features, calib, self.settings, device_tilt_angle=device_tilt_angle)
 
         x = features.to_vector()
         x = (x - self._feature_mean) / np.where(self._feature_std == 0, 1.0, self._feature_std)

@@ -1,0 +1,55 @@
+ScreenGuard
+Technology & Algorithm Stack
+Part 1: ML / Pattern Recognition
+Course Topics Applied
+Course Topic
+How it is used in ScreenGuard
+Linear classifiers
+Baseline model — logistic regression on raw landmark distances, to beat before justifying the neural approach
+Optimization
+Loss design: cross-entropy for posture class, MSE/Huber loss for distance regression; Adam optimizer with LR scheduling
+Neural networks
+Core MLP/small feed-forward net mapping landmark features to posture class + distance
+Backpropagation
+Training the network end-to-end; used to explain/justify architecture choices in ablations
+Image classification
+Framing posture detection as multi-class classification (good / slouched / too close / craned)
+CNNs & CNN architectures
+Optional stage using raw face-crop images instead of/alongside landmarks (e.g. a small MobileNet-style backbone, or distillation target)
+Languages & Core Libraries
+Python 3.10+ — all model development
+PyTorch — model definition and training loop (preferred over TF for flexibility in a lab setting)
+MediaPipe (Python) — pretrained FaceMesh for landmark extraction (Stage 1)
+scikit-learn — baseline linear classifier, train/val/test splitting utilities, metrics (F1, confusion matrix)
+NumPy / Pandas — feature engineering (pixel distances, angles) and dataset bookkeeping
+OpenCV — video capture, frame preprocessing, calibration overlays
+Matplotlib / Seaborn — qualitative analysis plots, ablation charts
+Model Export for On-Device Use
+ONNX / TensorFlow Lite — conversion path from the trained PyTorch model to a mobile-runnable format (via ONNX → TFLite, or training directly in TF/Keras if simpler)
+MediaPipe Tasks (Face Landmarker) Android/iOS runtime — the mobile-side equivalent of the Python FaceMesh used for feature extraction
+Experiment Tracking
+Jupyter / Google Colab — training notebooks
+TensorBoard / Weights & Biases — logging loss curves and ablation runs (optional)
+Metrics
+Accuracy, macro-F1 — per posture class, since classes are imbalanced
+MAE (centimeters) — for distance regression
+Inference latency (ms) / FPS — measured on-device, not just in Python
+Part 2: Mobile App (Flutter Demo)
+Language & Framework
+Dart + Flutter — cross-platform app shell (matches existing Flutter background)
+On-Device Inference
+tflite_flutter (or google_ml_kit if using MediaPipe Tasks directly) — running the exported model on-device
+google_mlkit_face_mesh_detection or camera + native MediaPipe bindings — real-time landmark extraction from the live camera feed
+Camera & Real-Time Pipeline
+camera (Flutter plugin) — front-camera stream access
+image (Dart package) — frame preprocessing/resizing before passing to the model
+State Management
+Provider or Riverpod — managing live posture state, calibration state, and UI nudges
+Local Storage (Calibration & Session Data)
+shared_preferences — storing the one-time calibration value (pixel-to-cm ratio)
+sqflite — optional — logging posture history over a session for later review
+UI/UX
+Flutter's built-in widgets — real-time overlay (posture status badge, distance readout)
+flutter_local_notifications — optional — background nudges if posture stays poor too long
+Why This Split Matters
+Keep the ML/PR section focused on what satisfies the rubric (loss function, metrics, baselines, ablations) — the app stack is just the deployment target proving the model works on-device, not the graded deep-learning core.

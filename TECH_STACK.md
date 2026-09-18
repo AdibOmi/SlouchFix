@@ -49,6 +49,14 @@ affect it.
 - Inference latency (ms) / FPS — measured on-device (the actual PC target), not just in a notebook
 - False-alert rate — non-intrusive-notification requirement from the pitch
 
+### Baselines & Ablations (implemented)
+
+- **Baseline 1** (`slouchfix/baseline.py`) — rule-based thresholds relative to a personal calibration.
+- **Baseline 2** (`slouchfix/naive_pose_baseline.py`) — the same pose estimator used naively: fixed universal thresholds, no personal calibration, a population-average interpupillary distance for the distance estimate. Meant to be beaten by Baseline 1, demonstrating why per-user calibration matters.
+- **Ablation A** — calibration-relative vs raw-absolute input features, for the trained MLP.
+- **Ablation B** — full feature set vs the same set with the temporal `motion_score` feature removed (substituted for a raw-frame CNN ablation, which needs a separate image-input pipeline out of this phase's scope).
+- All of the above run via `scripts/evaluate_report.py`, which writes `reports/evaluation_report.md`.
+
 ## Part 2: Desktop App (Windows/PC)
 
 Replaces the original Flutter mobile demo. Same webcam-in, notification-out

@@ -70,7 +70,12 @@ def _score_slouched(features: FrameFeatures, calib: Calibration, settings: Setti
     return _clip01((drop - threshold) / threshold)
 
 
-def classify(features: FrameFeatures, calib: Calibration, settings: Settings | None = None) -> PostureReading:
+def classify(
+    features: FrameFeatures,
+    calib: Calibration,
+    settings: Settings | None = None,
+    device_tilt_angle: float | None = None,
+) -> PostureReading:
     settings = settings or Settings()
     distance_cm = calib.estimate_distance_cm(features)
 
@@ -88,4 +93,6 @@ def classify(features: FrameFeatures, calib: Calibration, settings: Settings | N
         return PostureReading(label="good_posture", confidence=_clip01(confidence), distance_cm=distance_cm)
 
     confidence = _clip01(0.5 + 0.5 * score)  # triggered rules start at 0.5 confidence, scale up with severity
+    # TODO(phase2-mobile): suppress posture output by device tilt from
+    # accelerometer, keep distance estimation active regardless of tilt.
     return PostureReading(label=label, confidence=confidence, distance_cm=distance_cm)
