@@ -259,6 +259,83 @@
       "n_people_train": 60,
       "n_people_val": 20,
       "n_people_test": 20
+    },
+    "Random Forest": {
+      "classification": {
+        "accuracy": 0.9109873177669788,
+        "macro_f1": 0.8892026600653189,
+        "confusion_matrix": [
+          [
+            10163,
+            10,
+            90,
+            167,
+            168,
+            171
+          ],
+          [
+            99,
+            5092,
+            108,
+            8,
+            4,
+            79
+          ],
+          [
+            244,
+            147,
+            2220,
+            101,
+            1,
+            4
+          ],
+          [
+            208,
+            3,
+            83,
+            1696,
+            0,
+            33
+          ],
+          [
+            242,
+            64,
+            0,
+            1,
+            2099,
+            0
+          ],
+          [
+            109,
+            17,
+            6,
+            85,
+            1,
+            1788
+          ]
+        ],
+        "labels_order": [
+          "good_posture",
+          "slouched",
+          "leaning_forward",
+          "too_close",
+          "head_tilted",
+          "looking_away"
+        ]
+      },
+      "distance": {
+        "mae_cm": 2.258481467084503
+      },
+      "latency": {
+        "latency_ms": 117.58152299999892,
+        "fps": 8.504737602352787
+      },
+      "n_train": 76340,
+      "n_val": 25655,
+      "n_test": 25311,
+      "n_people_train": 60,
+      "n_people_val": 20,
+      "n_people_test": 20
     }
   }
 }
