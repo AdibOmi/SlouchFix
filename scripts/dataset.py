@@ -1,16 +1,16 @@
-"""Realistic dataset synthesis for SlouchFix.
+"""Dataset generator for SlouchFix.
 
-Generates physically and ergonomically realistic session CSVs modeling real-world
+Generates physically and ergonomically grounded session CSVs modeling real-world
 programming scenarios:
   - 8 diverse personas across different hardware setups (laptops, external monitors,
     dual-screen setups, standing desks, varying anthropometrics).
   - Optics-grounded landmark scaling (inter-ocular distance vs. screen distance).
   - Continuous behavioral timelines with sustained posture blocks, realistic
     posture transitions, and autoregressive physiological micro-movements.
-  - Compatible with slouchfix.models.dataset and scripts/train.py.
+  - Generates per-session CSVs under data/raw/ and a consolidated dataset.csv.
 
 Usage:
-    python scripts/generate_realistic_dataset.py
+    python scripts/dataset.py
 """
 
 from __future__ import annotations
@@ -435,8 +435,24 @@ def main() -> None:
         generated_files.append(out_s2)
         print(f"    -> Session 2: {len(df_s2)} frames saved to {out_s2.name}")
 
+    # Also build a consolidated single dataset.csv
+    all_dfs = [pd.read_csv(f) for f in generated_files]
+    combined_df = pd.concat(all_dfs, ignore_index=True)
+
+    config.DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    processed_dataset_path = config.DATA_PROCESSED_DIR / "dataset.csv"
+    combined_df.to_csv(processed_dataset_path, index=False)
+
+    datasets_dir = PROJECT_ROOT / "datasets"
+    datasets_dir.mkdir(parents=True, exist_ok=True)
+    datasets_csv_path = datasets_dir / "dataset.csv"
+    combined_df.to_csv(datasets_csv_path, index=False)
+
     print("\n" + "=" * 60)
-    print(f"Successfully generated {len(generated_files)} CSV files ({total_frames} frames total).")
+    print(f"Successfully generated {len(generated_files)} session CSV files ({total_frames} frames total).")
+    print(f"Consolidated dataset saved to:")
+    print(f"  * {datasets_csv_path}")
+    print(f"  * {processed_dataset_path}")
     print("Personas covered:")
     for p in PERSONAS:
         print(f"  * {p.person_id:12s} - {p.name}: {p.description}")
