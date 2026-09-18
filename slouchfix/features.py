@@ -15,8 +15,12 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
+from typing import TYPE_CHECKING
+
 from . import config
-from .landmarks import FaceResult
+
+if TYPE_CHECKING:
+    from .landmarks import FaceResult
 
 FEATURE_NAMES = [
     "pitch_deg",

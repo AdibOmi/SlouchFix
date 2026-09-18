@@ -14,7 +14,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from slouchfix.models import dataset, evaluate, export_onnx, train_all
+from slouchfix.models import dataset, evaluate, train_all
+
+try:
+    from slouchfix.models import export_onnx
+except ImportError:
+    export_onnx = None
 
 
 def main() -> None:
@@ -42,9 +47,10 @@ def main() -> None:
         )
 
     mean, std = all_results["_scaler"]
-    trained_mlp = all_results["_mlp"]
-    print("\nExporting MLP to ONNX for the desktop app ...")
-    export_onnx.export(trained_mlp["model"], list(trained_mlp["label_encoder"].classes_), mean, std)
+    trained_mlp = all_results.get("_mlp")
+    if trained_mlp is not None and export_onnx is not None:
+        print("\nExporting MLP to ONNX for the desktop app ...")
+        export_onnx.export(trained_mlp["model"], list(trained_mlp["label_encoder"].classes_), mean, std)
 
 
 if __name__ == "__main__":

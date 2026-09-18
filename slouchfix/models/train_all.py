@@ -9,14 +9,26 @@ from __future__ import annotations
 
 import pandas as pd
 
-from . import dataset, evaluate, train_baseline, train_mlp, train_rf, train_xgb
+from . import dataset, evaluate, train_baseline, train_rf
 
 MODEL_MODULES = {
     "Logistic Regression (baseline)": train_baseline,
     "Random Forest": train_rf,
-    "XGBoost": train_xgb,
-    "MLP (PyTorch)": train_mlp,
 }
+
+try:
+    from . import train_xgb
+    MODEL_MODULES["XGBoost"] = train_xgb
+except ImportError as exc:
+    print(f"[Notice] XGBoost not available ({exc}). Skipping XGBoost.")
+
+try:
+    from . import train_mlp
+    MODEL_MODULES["MLP (PyTorch)"] = train_mlp
+except ImportError as exc:
+    train_mlp = None
+    print(f"[Notice] PyTorch not available ({exc}). Skipping MLP & ONNX export.")
+
 
 
 def train_and_evaluate_all(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFrame) -> dict:
