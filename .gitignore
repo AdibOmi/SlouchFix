@@ -1,7 +1,9 @@
 .venv/
+.venv-notebook/
 __pycache__/
 *.pyc
 data/raw/*.csv
+data/raw/hf_posture_images/
 data/processed/*
 data/models/*
 data/history/*.csv
@@ -11,3 +13,15 @@ datasets/*
 !data/models/.gitkeep
 !data/history/.gitkeep
 !datasets/.gitkeep
+
+# Pose-model weights downloaded on demand by notebooks/posture_pipeline_ablation.py
+# (self-contained/re-downloadable -- see the notebook's install/download cells)
+*.caffemodel
+*.task
+yolov8n-pose.pt
+
+# Ablation-study paper, slides source, notebooks, and reports -- not part of the app
+notebooks/
+paper/
+reports/
+result_notebook/
