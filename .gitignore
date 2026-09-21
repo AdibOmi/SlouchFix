@@ -24,4 +24,5 @@ yolov8n-pose.pt
 notebooks/
 paper/
 reports/
-result_notebook/
+
+.claude/
