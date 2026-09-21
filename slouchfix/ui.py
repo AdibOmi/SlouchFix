@@ -1,8 +1,8 @@
 """Tkinter dashboard: a single window for the things that were previously
 tray-menu-only or invisible -- starting/stopping monitoring, pausing,
-recalibrating, editing thresholds, and browsing history/stats. Runs the
-monitoring loop in a background thread (same pattern as `tray.py`) while
-Tkinter owns the main thread.
+editing settings, and browsing history/stats. Runs the monitoring loop in
+a background thread (same pattern as `tray.py`) while Tkinter owns the
+main thread.
 """
 
 from __future__ import annotations
@@ -18,28 +18,16 @@ from .history import HistoryLogger, compute_period_stats
 from .settings import Settings
 
 LABEL_TITLES = {
-    "good_posture": "Good Posture",
+    "good": "Good Posture",
     "slouched": "Slouched",
-    "leaning_forward": "Leaning Forward",
-    "too_close": "Too Close",
-    "head_tilted": "Head Tilted",
-    "looking_away": "Looking Away",
 }
 
 LABEL_COLORS = {
-    "good_posture": "#2E8B57",
+    "good": "#2E8B57",
     "slouched": "#C0392B",
-    "leaning_forward": "#D35400",
-    "too_close": "#8E44AD",
-    "head_tilted": "#B7950B",
-    "looking_away": "#2980B9",
 }
 
 SETTINGS_FIELDS = [
-    ("too_close_distance_cm", "Too-close distance (cm)", float),
-    ("yaw_looking_away_deg", "Looking-away yaw threshold (deg)", float),
-    ("roll_head_tilted_deg", "Head-tilt roll threshold (deg)", float),
-    ("pitch_leaning_forward_deg", "Leaning-forward pitch threshold (deg)", float),
     ("notification_cooldown_sec", "Notification cooldown (sec)", float),
     ("good_posture_reminder_sec", "Good-posture reminder interval (sec)", float),
     ("confirm_frames", "Frames to confirm a state change", int),
@@ -103,8 +91,6 @@ class Dashboard(tk.Tk):
         self.start_btn.grid(row=0, column=0, padx=5)
         self.pause_btn = ttk.Button(btn_row, text="Pause", command=self._toggle_pause, state="disabled")
         self.pause_btn.grid(row=0, column=1, padx=5)
-        self.recal_btn = ttk.Button(btn_row, text="Recalibrate", command=self._recalibrate, state="disabled")
-        self.recal_btn.grid(row=0, column=2, padx=5)
 
         notif_row = ttk.Frame(frame)
         notif_row.pack(pady=(20, 0))
@@ -191,7 +177,7 @@ class Dashboard(tk.Tk):
                     settings=settings,
                     history=self.history,
                 )
-            except Exception as exc:  # camera busy/missing, no face detector assets, etc.
+            except Exception as exc:  # camera busy/missing, no pose model asset, etc.
                 self._start_error = str(exc)
                 return
             self.app.run()
@@ -200,7 +186,6 @@ class Dashboard(tk.Tk):
         self._app_thread.start()
         self.start_btn.configure(text="Stop Monitoring", command=self._stop_monitoring)
         self.pause_btn.configure(state="normal", text="Pause")
-        self.recal_btn.configure(state="normal")
 
     def _stop_monitoring(self) -> None:
         self._stopping = True
@@ -208,7 +193,6 @@ class Dashboard(tk.Tk):
             self.app.stop()
         self.start_btn.configure(text="Stopping...", state="disabled")
         self.pause_btn.configure(state="disabled")
-        self.recal_btn.configure(state="disabled")
         self.after(300, self._finish_stop)
 
     def _finish_stop(self) -> None:
@@ -222,18 +206,12 @@ class Dashboard(tk.Tk):
         self.model_var.set("")
         self.start_btn.configure(text="Start Monitoring", command=self._start_monitoring, state="normal")
         self.pause_btn.configure(state="disabled", text="Pause")
-        self.recal_btn.configure(state="disabled")
 
     def _toggle_pause(self) -> None:
         if self.app is None:
             return
         self.app.toggle_pause()
         self.pause_btn.configure(text="Resume" if self.app.paused else "Pause")
-
-    def _recalibrate(self) -> None:
-        if self.app is None:
-            return
-        threading.Thread(target=self.app.recalibrate, daemon=True).start()
 
     def _toggle_notifications(self) -> None:
         self.settings.notifications_enabled = self.notif_var.get()
@@ -252,7 +230,7 @@ class Dashboard(tk.Tk):
         elif self.app is not None:
             state = self.app.state
             if state is None:
-                self.label_var.set("Looking for a face...")
+                self.label_var.set("Looking for a person...")
                 self.detail_var.set("")
             else:
                 self.label_var.set(LABEL_TITLES.get(state.label, state.label))
@@ -264,9 +242,8 @@ class Dashboard(tk.Tk):
                 if self.app.paused:
                     detail += "  [PAUSED]"
                 self.detail_var.set(detail)
-            model_kind = "trained model" if self.app.using_trained_model else "rule-based baseline"
             session_min = int(self.app.session_seconds // 60)
-            self.model_var.set(f"Using {model_kind} | session: {session_min} min")
+            self.model_var.set(f"session: {session_min} min")
 
         self.after(500, self._tick)
 
@@ -334,7 +311,7 @@ class Dashboard(tk.Tk):
         self.settings.save()
         note = "Saved."
         if self.app is not None:
-            note += " Restart monitoring (Stop then Start) to apply the new thresholds."
+            note += " Restart monitoring (Stop then Start) to apply the new settings."
         self.settings_note_var.set(note)
 
     def _reset_settings(self) -> None:

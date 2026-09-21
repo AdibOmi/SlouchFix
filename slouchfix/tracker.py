@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 
 from . import config
-from .baseline import PostureReading
+from .inference import PostureReading
 
 
 @dataclass

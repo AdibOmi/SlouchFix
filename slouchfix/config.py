@@ -1,11 +1,10 @@
-"""Central configuration: paths, camera settings, landmark indices, thresholds."""
+"""Central configuration: paths, camera settings, pose-keypoint indices."""
 
 from pathlib import Path
 
 # --- Paths -------------------------------------------------------------
 
 APP_DIR = Path.home() / ".slouchfix"
-CALIBRATION_PATH = APP_DIR / "calibration.json"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_RAW_DIR = PROJECT_ROOT / "data" / "raw"
@@ -19,57 +18,51 @@ FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
 TARGET_FPS = 15
 
-# --- MediaPipe FaceMesh landmark indices ---------------------------------
-# Canonical subset used for solvePnP head-pose estimation (standard mapping
-# for the 468-point MediaPipe FaceMesh topology).
-NOSE_TIP = 4
-CHIN = 152
-LEFT_EYE_OUTER = 33
-RIGHT_EYE_OUTER = 263
-LEFT_MOUTH_CORNER = 61
-RIGHT_MOUTH_CORNER = 291
+# --- MoveNet (COCO-17) keypoint indices -----------------------------------
+# Standard MoveNet/COCO ordering: nose, left/right eye, left/right ear,
+# left/right shoulder, left/right elbow, left/right wrist, left/right hip,
+# left/right knee, left/right ankle.
+NOSE = 0
+LEFT_EYE = 1
+RIGHT_EYE = 2
+LEFT_EAR = 3
+RIGHT_EAR = 4
+LEFT_SHOULDER = 5
+RIGHT_SHOULDER = 6
+LEFT_ELBOW = 7
+RIGHT_ELBOW = 8
+LEFT_WRIST = 9
+RIGHT_WRIST = 10
+LEFT_HIP = 11
+RIGHT_HIP = 12
+LEFT_KNEE = 13
+RIGHT_KNEE = 14
+LEFT_ANKLE = 15
+RIGHT_ANKLE = 16
 
-# Extra points used directly in feature engineering.
-LEFT_EYE_INNER = 133
-RIGHT_EYE_INNER = 362
-FOREHEAD = 10
-
-POSE_LANDMARK_IDS = [NOSE_TIP, CHIN, LEFT_EYE_OUTER, RIGHT_EYE_OUTER, LEFT_MOUTH_CORNER, RIGHT_MOUTH_CORNER]
-
-# 3D canonical face model points (mm, arbitrary consistent scale) matched
-# 1:1 with POSE_LANDMARK_IDS above, in the same order. Standard values used
-# widely for MediaPipe/OpenCV solvePnP head-pose demos.
-MODEL_POINTS_3D = [
-    (0.0, 0.0, 0.0),          # nose tip
-    (0.0, -63.6, -12.5),      # chin
-    (-43.3, 32.7, -26.0),     # left eye outer corner
-    (43.3, 32.7, -26.0),      # right eye outer corner
-    (-28.9, -28.9, -24.1),    # left mouth corner
-    (28.9, -28.9, -24.1),     # right mouth corner
+# Joints required to compute the 4-d angle feature vector (see
+# pose_features.py). A frame missing any of these below MIN_KEYPOINT_SCORE
+# confidence is skipped rather than imputed.
+REQUIRED_ANGLE_JOINTS = [
+    NOSE,
+    LEFT_SHOULDER,
+    RIGHT_SHOULDER,
+    LEFT_ELBOW,
+    RIGHT_ELBOW,
+    LEFT_WRIST,
+    RIGHT_WRIST,
 ]
+MIN_KEYPOINT_SCORE = 0.3
 
-# Landmarks tracked frame-to-frame for the "movement over time" feature.
-MOTION_LANDMARK_IDS = [NOSE_TIP, LEFT_EYE_OUTER, RIGHT_EYE_OUTER, FOREHEAD]
-MOTION_WINDOW_FRAMES = 10  # ~0.6-1s of history at target FPS
+# Assumed average shoulder width (cm), used only for the informational,
+# non-ML distance estimate in pose_features.py -- deliberately approximate,
+# same "population-average" pattern the old naive_pose_baseline.py used for
+# interpupillary distance.
+AVG_SHOULDER_WIDTH_CM = 40.0
 
 # --- Posture labels --------------------------------------------------------
 
-LABELS = [
-    "good_posture",
-    "slouched",
-    "leaning_forward",
-    "too_close",
-    "head_tilted",
-    "looking_away",
-]
-
-# --- Rule-based baseline thresholds (relative to calibration) -----------
-
-TOO_CLOSE_DISTANCE_CM = 40.0
-YAW_LOOKING_AWAY_DEG = 30.0
-ROLL_HEAD_TILTED_DEG = 15.0
-PITCH_LEANING_FORWARD_DEG = 12.0   # forward pitch beyond calibrated baseline
-SLOUCH_FACE_DROP_RATIO = 0.12      # fraction of frame height the face center may sink before "slouched"
+LABELS = ["good", "slouched"]
 
 # --- Temporal smoothing / non-intrusiveness ------------------------------
 

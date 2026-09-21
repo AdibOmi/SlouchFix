@@ -1,4 +1,4 @@
-"""Main real-time loop: capture -> landmarks -> features -> inference ->
+"""Main real-time loop: capture -> pose -> pose_features -> inference ->
 tracker -> notifier. This is the console/headless entry point; `tray.py`
 wraps this in a background thread with a system tray icon for normal use.
 """
@@ -9,20 +9,12 @@ import argparse
 import time
 
 from . import config
-from .calibration import (
-    CALIBRATION_SECONDS,
-    DEFAULT_CALIBRATION_DISTANCE_CM,
-    RecalibrationMonitor,
-    _build_calibration,
-    get_or_run_calibration,
-    run_calibration,
-)
 from .capture import WebcamCapture
-from .features import FeatureExtractor, FrameFeatures
 from .history import HistoryLogger
 from .inference import PostureEngine
-from .landmarks import FaceLandmarkDetector
 from .notifier import Notifier
+from .pose import PoseDetector
+from .pose_features import extract, has_required_joints
 from .settings import Settings
 from .tracker import PostureTracker, TrackedState
 
@@ -38,42 +30,18 @@ class SlouchFixApp:
         self.show_preview = show_preview
         self.settings = settings or Settings.load()
         self.history = history or HistoryLogger()
-        self.calibration = get_or_run_calibration()
-        self.engine = PostureEngine(self.settings)
+        self.engine = PostureEngine()
         self.tracker = PostureTracker(confirm_frames=self.settings.confirm_frames)
-        self.drift_monitor = RecalibrationMonitor()
         self.notifier = Notifier(enabled=notifications, settings=self.settings, history=self.history)
         self.paused = False
         self._stop = False
         self._session_start = time.monotonic()
         self.state: TrackedState | None = None
         self.latest_frame = None
-        self.calibration_stale = False
-
-        self._recalibrating = False
-        self._recal_samples: list[FrameFeatures] = []
-        self._recal_start = 0.0
-        self._recal_seconds = 0.0
-        self._recal_distance_cm = 0.0
-        self.recalibration_error: str | None = None
-
-    @property
-    def using_trained_model(self) -> bool:
-        return self.engine.using_trained_model
 
     @property
     def session_seconds(self) -> float:
         return time.monotonic() - self._session_start
-
-    @property
-    def recalibrating(self) -> bool:
-        return self._recalibrating
-
-    @property
-    def recalibration_progress(self) -> float:
-        if not self._recalibrating or self._recal_seconds <= 0:
-            return 0.0
-        return min(1.0, (time.monotonic() - self._recal_start) / self._recal_seconds)
 
     def stop(self) -> None:
         self._stop = True
@@ -81,35 +49,8 @@ class SlouchFixApp:
     def toggle_pause(self) -> None:
         self.paused = not self.paused
 
-    def recalibrate(self) -> None:
-        was_paused = self.paused
-        self.paused = True
-        try:
-            self.calibration = run_calibration()
-            self.drift_monitor.reset()
-        finally:
-            self.paused = was_paused
-
-    def start_recalibration(
-        self,
-        distance_cm: float = DEFAULT_CALIBRATION_DISTANCE_CM,
-        seconds: float = CALIBRATION_SECONDS,
-    ) -> None:
-        """Non-blocking recalibration for callers (the local server, for the
-        Flutter UI) that can't tolerate `recalibrate()`'s native cv2 window:
-        samples are collected from frames `run()` is already reading, over
-        the next `seconds`, then folded into a new baseline in place.
-        Poll `recalibrating`/`recalibration_progress` for UI feedback."""
-        self._recal_samples = []
-        self._recal_start = time.monotonic()
-        self._recal_seconds = seconds
-        self._recal_distance_cm = distance_cm
-        self.recalibration_error = None
-        self._recalibrating = True
-
     def run(self) -> None:
-        with WebcamCapture(camera_index=self.settings.camera_index) as cam, FaceLandmarkDetector() as detector:
-            extractor = FeatureExtractor()
+        with WebcamCapture(camera_index=self.settings.camera_index) as cam, PoseDetector() as detector:
             print("SlouchFix running. Press Ctrl+C (or Esc in preview) to stop.")
             frame_interval = 1.0 / config.TARGET_FPS
 
@@ -120,46 +61,21 @@ class SlouchFixApp:
                     continue
                 self.latest_frame = frame
 
-                if self.paused and not self._recalibrating:
+                if self.paused:
                     if self.show_preview:
                         self._show(frame, banner="PAUSED")
                     time.sleep(frame_interval)
                     continue
 
-                face = detector.process(frame)
-                if face is None:
-                    extractor.reset()
-                    self.drift_monitor.reset()
+                pose = detector.process(frame)
+                if pose is None or not has_required_joints(pose):
                     if self.show_preview:
-                        self._show(frame, banner="no face detected")
+                        self._show(frame, banner="no person detected")
                     time.sleep(frame_interval)
                     continue
 
-                features = extractor.extract(face)
-
-                if self._recalibrating:
-                    self._recal_samples.append(features)
-                    if time.monotonic() - self._recal_start >= self._recal_seconds:
-                        try:
-                            self.calibration = _build_calibration(self._recal_samples, self._recal_distance_cm)
-                            self.calibration.save()
-                            self.drift_monitor.reset()
-                            self.calibration_stale = False
-                        except RuntimeError as exc:
-                            self.recalibration_error = str(exc)
-                        self._recalibrating = False
-                    if self.show_preview:
-                        self._show(frame, banner=f"Recalibrating... {self.recalibration_progress:.0%}")
-                    time.sleep(frame_interval)
-                    continue
-
-                if self.drift_monitor.update(features):
-                    self.calibration_stale = True
-                    print(
-                        "[SlouchFix] Large frame-to-frame landmark jump detected -- "
-                        "calibration may be stale (camera/laptop moved?). Consider --recalibrate."
-                    )
-                reading = self.engine.classify(features, self.calibration)
+                features = extract(pose)
+                reading = self.engine.classify(features)
                 state = self.tracker.update(reading)
                 self.state = state
                 if state.just_changed:
@@ -205,16 +121,12 @@ class SlouchFixApp:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="SlouchFix -- posture and screen-distance monitor")
+    parser = argparse.ArgumentParser(description="SlouchFix -- posture monitor")
     parser.add_argument("--preview", action="store_true", help="show a debug camera preview window")
     parser.add_argument(
         "--no-notifications", action="store_true", help="disable desktop notifications (console-only)"
     )
-    parser.add_argument("--recalibrate", action="store_true", help="force a fresh calibration before starting")
     args = parser.parse_args()
-
-    if args.recalibrate:
-        run_calibration()
 
     app = SlouchFixApp(show_preview=args.preview, notifications=not args.no_notifications)
     try:

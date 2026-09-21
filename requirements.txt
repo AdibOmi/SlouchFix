@@ -1,12 +1,14 @@
-# Core runtime (rule-based app works with just these + a webcam)
+# Core runtime (posture app works with just these + a webcam + the bundled model)
 opencv-python>=4.10
-mediapipe>=0.10.30
+tflite-runtime>=2.14; python_version < "3.13"
+ai-edge-litert>=1.0; python_version >= "3.13"  # tflite-runtime's successor package
 numpy>=2.0
 pandas>=2.2
 plyer>=2.1
 pystray>=0.19
 pillow>=11.0
 pyyaml>=6.0
+onnxruntime>=1.19
 
 # Local backend for the Flutter desktop app (slouchfix_app/)
 fastapi>=0.115
@@ -15,12 +17,11 @@ uvicorn[standard]>=0.32
 # Dataset acquisition scripts
 requests>=2.32
 
-# Training (Part 1: ML / Pattern Recognition)
+# Training (posture-pipeline SVM; no longer needed at inference time)
 scikit-learn>=1.5
-torch>=2.5
-xgboost>=2.1
-onnx>=1.17
-onnxruntime>=1.19
 skl2onnx>=1.17
-matplotlib>=3.9
-seaborn>=0.13
+joblib>=1.4
+
+# Still installed for the ablation notebook / paper tooling under
+# notebooks/ and result_notebook/, no longer imported by the live app
+mediapipe>=0.10.30

@@ -35,16 +35,12 @@ class SlouchFixTray:
             "SlouchFix",
             menu=Menu(
                 MenuItem(lambda item: "Resume" if self.app.paused else "Pause", self._toggle_pause),
-                MenuItem("Recalibrate", self._recalibrate),
                 MenuItem("Quit", self._quit),
             ),
         )
 
     def _toggle_pause(self, icon, item) -> None:
         self.app.toggle_pause()
-
-    def _recalibrate(self, icon, item) -> None:
-        self.app.recalibrate()
 
     def _quit(self, icon, item) -> None:
         self.app.stop()

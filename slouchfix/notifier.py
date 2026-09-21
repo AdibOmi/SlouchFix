@@ -18,20 +18,10 @@ if TYPE_CHECKING:
     from .history import HistoryLogger
 
 MESSAGES = {
-    "too_close": lambda s, settings: (
-        "Too Close",
-        f"Move back approximately {max(settings.too_close_distance_cm - s.distance_cm, 1):.0f} cm",
-    ),
-    "leaning_forward": lambda s, settings: (
-        "Leaning Forward",
-        f"You have been leaning for {s.duration_sec:.0f} seconds",
-    ),
     "slouched": lambda s, settings: (
         "Slouched",
         f"You have been slouching for {s.duration_sec:.0f} seconds",
     ),
-    "head_tilted": lambda s, settings: ("Head Tilted", "Straighten your head and neck"),
-    "looking_away": lambda s, settings: ("Looking Away", "Face not centered on screen"),
 }
 
 
@@ -70,13 +60,13 @@ class Notifier:
     def maybe_notify(self, state: TrackedState, session_minutes: float) -> None:
         now = time.monotonic()
 
-        if state.label == "good_posture":
+        if state.label == "good":
             if now - self._last_good_reminder >= self.settings.good_posture_reminder_sec:
                 self._last_good_reminder = now
                 self._send(
                     "Good Posture",
                     f"Distance: {state.distance_cm:.0f} cm | Focus session: {session_minutes:.0f} min",
-                    label="good_posture",
+                    label="good",
                 )
             return
 

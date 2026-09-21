@@ -1,50 +1,59 @@
-"""Exports the trained PyTorch MLP to ONNX for `onnxruntime`-based inference
-in the desktop app (see `slouchfix/inference.py`), plus a metadata JSON
-recording the feature order, label order, and the standardization
-mean/std used at train time -- the app must apply the exact same scaling.
+"""Exports the trained sklearn SVM pipeline to ONNX for `onnxruntime`-based
+inference in the desktop app (see `slouchfix/inference.py`), plus a
+metadata JSON recording the feature and label order. The StandardScaler is
+embedded in the exported ONNX graph by skl2onnx, so (unlike the retired
+MLP-based exporter) no separate feature_mean/feature_std needs to travel
+in the metadata -- the graph does its own scaling.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 
-import numpy as np
-import torch
+import joblib
+from skl2onnx import convert_sklearn
+from skl2onnx.common.data_types import FloatTensorType
+from sklearn.pipeline import Pipeline
 
 from .. import config
-from ..features import FEATURE_NAMES
-from .train_mlp import PostureMLP
+from ..pose_features import FEATURE_NAMES
+from .train_svm import MODEL_PICKLE_PATH
 
 
-def export(
-    model: PostureMLP,
-    label_classes: list[str],
-    feature_mean: np.ndarray,
-    feature_std: np.ndarray,
-) -> None:
+def export(pipeline: Pipeline, labels: list[str]) -> None:
     config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
     onnx_path = config.MODELS_DIR / "posture_model.onnx"
     meta_path = config.MODELS_DIR / "posture_model_meta.json"
 
-    model.eval()
-    dummy_input = torch.zeros((1, len(FEATURE_NAMES)), dtype=torch.float32)
-    torch.onnx.export(
-        model,
-        dummy_input,
-        str(onnx_path),
-        input_names=["features"],
-        output_names=["posture_logits", "distance_cm"],
-        dynamic_axes={"features": {0: "batch"}, "posture_logits": {0: "batch"}, "distance_cm": {0: "batch"}},
-        opset_version=17,
-        dynamo=False,  # legacy TorchScript-based exporter: simpler and dependency-light for this small MLP
+    initial_type = [("features", FloatTensorType([None, len(FEATURE_NAMES)]))]
+    onnx_model = convert_sklearn(
+        pipeline,
+        initial_types=initial_type,
+        options={id(pipeline.named_steps["svm"]): {"zipmap": False}},
     )
+    onnx_path.write_bytes(onnx_model.SerializeToString())
 
     meta = {
         "feature_names": FEATURE_NAMES,
-        "labels": list(label_classes),
-        "feature_mean": feature_mean.tolist(),
-        "feature_std": feature_std.tolist(),
+        "labels": list(labels),
     }
     meta_path.write_text(json.dumps(meta, indent=2))
     print(f"Exported ONNX model to {onnx_path}")
     print(f"Exported metadata to {meta_path}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--model", type=str, default=str(MODEL_PICKLE_PATH), help="path to the trained pipeline (.joblib) to export"
+    )
+    args = parser.parse_args()
+
+    pipeline: Pipeline = joblib.load(args.model)
+    labels = sorted(pipeline.named_steps["svm"].classes_.tolist())
+    export(pipeline, labels)
+
+
+if __name__ == "__main__":
+    main()
