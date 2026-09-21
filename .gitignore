@@ -20,6 +20,10 @@ datasets/*
 *.task
 yolov8n-pose.pt
 
+# MoveNet ONNX weights for the live app's pose.py -- see its error message
+# for the download source; not committed (binary, easily re-fetched)
+slouchfix/assets/movenet_lightning.onnx
+
 # Ablation-study paper, slides source, notebooks, and reports -- not part of the app
 notebooks/
 paper/

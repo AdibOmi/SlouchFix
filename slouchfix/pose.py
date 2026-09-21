@@ -1,10 +1,12 @@
-"""MoveNet (SinglePose Lightning) wrapper via tflite-runtime.
+"""MoveNet (SinglePose Lightning) wrapper via onnxruntime.
 
 Replaces the old MediaPipe FaceLandmarker (`landmarks.py`, retired): the
-winning ablation pipeline detects body pose, not face landmarks. Chosen
-over TensorFlow Hub's MoveNet loader (too heavy for a background app) and
-over an ONNX re-export of MoveNet (an unnecessary conversion step) -- see
-`docs/superpowers/specs/2026-09-21-pose-pipeline-integration-design.md`.
+winning ablation pipeline detects body pose, not face landmarks. Runs on
+onnxruntime rather than a separate tflite-runtime interpreter, so the live
+app only ever talks to one inference runtime -- the same one `inference.py`
+uses for the SVM classifier -- at the cost of a one-time conversion to get
+MoveNet into ONNX in the first place (see
+docs/superpowers/specs/2026-09-21-pose-pipeline-integration-design.md).
 """
 
 from __future__ import annotations
@@ -14,8 +16,9 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import onnxruntime as ort
 
-ASSET_PATH = Path(__file__).resolve().parent / "assets" / "movenet_lightning.tflite"
+ASSET_PATH = Path(__file__).resolve().parent / "assets" / "movenet_lightning.onnx"
 
 NUM_KEYPOINTS = 17  # COCO-17 order; see config.py for named indices
 INPUT_SIZE = 192  # MoveNet Lightning's fixed square input resolution
@@ -41,25 +44,17 @@ class PoseResult:
 
 
 class PoseDetector:
-    """Runs MoveNet Lightning over a sequence of frames via tflite-runtime."""
+    """Runs MoveNet Lightning (ONNX) over a sequence of frames via onnxruntime."""
 
     def __init__(self, model_path: Path = ASSET_PATH) -> None:
         if not model_path.exists():
             raise FileNotFoundError(
                 f"MoveNet model not found at {model_path}. Download it from "
-                "https://storage.googleapis.com/tfhub-lite-models/google/lite-model/"
-                "movenet/singlepose/lightning/tflite/float16/4.tflite "
+                "https://huggingface.co/Xenova/movenet-singlepose-lightning/resolve/main/onnx/model.onnx "
                 f"and save it as {model_path}."
             )
-        try:
-            from tflite_runtime.interpreter import Interpreter
-        except ImportError:
-            from ai_edge_litert.interpreter import Interpreter  # tflite-runtime's successor package
-
-        self._interpreter = Interpreter(model_path=str(model_path))
-        self._interpreter.allocate_tensors()
-        self._input_details = self._interpreter.get_input_details()
-        self._output_details = self._interpreter.get_output_details()
+        self._session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+        self._input_name = self._session.get_inputs()[0].name
 
     def process(self, frame_bgr: np.ndarray) -> PoseResult | None:
         """Run detection on one BGR frame (as returned by cv2.VideoCapture)."""
@@ -67,18 +62,12 @@ class PoseDetector:
 
         rgb = frame_bgr[:, :, ::-1]
         resized = cv2.resize(rgb, (INPUT_SIZE, INPUT_SIZE))
-        input_dtype = self._input_details[0]["dtype"]
-        if input_dtype == np.uint8:
-            input_tensor = resized.astype(np.uint8)
-        else:
-            input_tensor = (resized.astype(np.float32) - 127.5) / 127.5
-        input_tensor = np.expand_dims(input_tensor, axis=0)
+        # This ONNX export takes raw 0-255 pixel values as int32, NHWC -- no
+        # normalization, unlike a typical float32 model input.
+        input_tensor = np.expand_dims(resized.astype(np.int32), axis=0)
 
-        self._interpreter.set_tensor(self._input_details[0]["index"], input_tensor)
-        self._interpreter.invoke()
-        keypoints = self._interpreter.get_tensor(self._output_details[0]["index"])
-        # Output shape (1, 1, 17, 3): [y, x, score] normalized to [0, 1].
-        keypoints = keypoints[0, 0]
+        outputs = self._session.run(None, {self._input_name: input_tensor})
+        keypoints = outputs[0][0, 0]  # shape (1, 1, 17, 3) -> (17, 3): [y, x, score], normalized to [0, 1]
 
         points_px = np.stack([keypoints[:, 1] * width, keypoints[:, 0] * height], axis=1).astype(np.float32)
         scores = keypoints[:, 2].astype(np.float32)
@@ -89,7 +78,7 @@ class PoseDetector:
         return PoseResult(points_px=points_px, scores=scores, frame_width=width, frame_height=height)
 
     def close(self) -> None:
-        pass  # tflite-runtime's Interpreter has no explicit teardown
+        pass
 
     def __enter__(self) -> "PoseDetector":
         return self

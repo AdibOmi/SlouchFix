@@ -1,7 +1,5 @@
 # Core runtime (posture app works with just these + a webcam + the bundled model)
 opencv-python>=4.10
-tflite-runtime>=2.14; python_version < "3.13"
-ai-edge-litert>=1.0; python_version >= "3.13"  # tflite-runtime's successor package
 numpy>=2.0
 pandas>=2.2
 plyer>=2.1

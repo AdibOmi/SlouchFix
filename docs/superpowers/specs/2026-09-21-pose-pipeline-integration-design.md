@@ -31,10 +31,15 @@ app, replacing the face-landmark system entirely.
    optionally be retrained on the user's own webcam sessions later. These
    two sources share one feature schema (the 4-d angle vector), so they
    can be combined in a single training run without translation.
-3. **MoveNet runtime: `tflite-runtime`.** Not TensorFlow (too heavy for a
-   background app) and not an ONNX re-export of MoveNet (adds a conversion
-   step for no benefit here) — a small, MoveNet-specific interpreter
-   loading the `.tflite` file directly.
+3. **MoveNet runtime: ONNX via `onnxruntime`.** Not TensorFlow (too heavy
+   for a background app) and not a separate `tflite-runtime` interpreter
+   (revised from an earlier version of this decision) — the live app uses
+   `onnxruntime` for both the pose estimator and the SVM classifier, one
+   inference runtime for everything. Uses the public
+   `Xenova/movenet-singlepose-lightning` ONNX export (verified: input
+   `(1,192,192,3)` int32 raw RGB pixels, output `(1,1,17,3)`
+   `[y, x, score]` normalized to `[0,1]` — identical keypoint contract to
+   the original `.tflite`).
 4. **Distance becomes a non-ML, informational heuristic.** Shoulder-width
    in pixels vs. an assumed average shoulder width, shown in the UI, never
    fed to the classifier or used in any decision (the same
@@ -72,13 +77,13 @@ app, replacing the face-landmark system entirely.
 
 ### `slouchfix/pose.py` (replaces `landmarks.py`)
 
-MoveNet-Lightning wrapper via `tflite-runtime`, loading a bundled
-`movenet_lightning.tflite` from `slouchfix/assets/`. Given a BGR frame,
-returns the 17 COCO-style keypoints (pixel coords + per-joint confidence)
-MoveNet natively outputs, or `None` if no person is detected above
-threshold. No cross-backend canonical-schema remapping is needed — the
-live app only ever runs this one backend, unlike the ablation study's
-six-backend comparison.
+MoveNet-Lightning wrapper via `onnxruntime`, loading a bundled
+`movenet_lightning.onnx` from `slouchfix/assets/` (not committed to git —
+see Dependencies). Given a BGR frame, returns the 17 COCO-style keypoints
+(pixel coords + per-joint confidence) MoveNet natively outputs, or `None`
+if no person is detected above threshold. No cross-backend
+canonical-schema remapping is needed — the live app only ever runs this
+one backend, unlike the ablation study's six-backend comparison.
 
 ### `slouchfix/pose_features.py` (replaces `features.py`)
 
@@ -151,11 +156,20 @@ needed), `history.py` (schema is already just
 
 ## Dependencies
 
-Add: `tflite-runtime` (or `ai-edge-litert`), `skl2onnx`, `scikit-learn`
-(training-time only). Drop `mediapipe` from the live app's runtime path
-(no longer used at inference time); leave it in `requirements.txt` for now
-rather than force-removing it, since other tooling in the repo may still
-reference it.
+Add: `skl2onnx`, `scikit-learn`, `joblib` (training-time only) —
+`onnxruntime` was already a dependency and now also runs the pose
+estimator. Drop `mediapipe` from the live app's runtime path (no longer
+used at inference time); leave it in `requirements.txt` for now rather
+than force-removing it, since the ablation notebook/paper tooling still
+references it.
+
+`slouchfix/assets/movenet_lightning.onnx` (the pose estimator's weights,
+~9MB) is gitignored, not committed — same pattern as the retired
+`face_landmarker.task`. It's fetched from the public
+`Xenova/movenet-singlepose-lightning` Hugging Face repo (see `pose.py`'s
+error message for the exact URL) rather than downloaded automatically on
+first run, matching decision 5's "require bundled, no silent fallback"
+posture: a missing asset should be a clear, explicit setup step.
 
 ## Error handling
 
